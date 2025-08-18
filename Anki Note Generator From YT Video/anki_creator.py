@@ -61,7 +61,10 @@ def create_anki_deck(
         ],
     )
 
-    # Build decks per topic/subtopic
+    # Build decks per topic/subtopic, nested under the provided root `deck_name`.
+    # Deck names will be formed as "{deck_name}::{topic}" or
+    # "{deck_name}::{topic}::{subtopic}" so Anki shows a single root deck with
+    # topic/subtopic children.
     name_to_deck: dict[str, genanki.Deck] = {}
 
     def get_or_create_deck(name: str) -> genanki.Deck:
@@ -71,10 +74,15 @@ def create_anki_deck(
             name_to_deck[name] = d
         return d
 
+    # Ensure the root deck exists so the hierarchy has a single main deck
+    get_or_create_deck(deck_name)
+
     for deck_cards in flashcards.decks:
-        deck_full_name = deck_cards.topic
+        # Prefix every topic/subtopic with the main deck name to create a tree
+        deck_full_name = f"{deck_name}::{deck_cards.topic}"
         if deck_cards.subtopic:
-            deck_full_name = f"{deck_cards.topic}::{deck_cards.subtopic}"
+            deck_full_name = f"{deck_full_name}::{deck_cards.subtopic}"
+
         target_deck = get_or_create_deck(deck_full_name)
 
         for card in deck_cards.cards:
@@ -85,10 +93,20 @@ def create_anki_deck(
     # Package all decks together
     decks = list(name_to_deck.values()) or [genanki.Deck(_stable_id_from_name(deck_name), deck_name)]
     package = genanki.Package(decks)
+
+    safe_name = deck_name.replace(os.sep, "_").replace(" ", "_")
     if output_path is None:
-        safe_name = deck_name.replace(os.sep, "_").replace(" ", "_")
-        output_path = os.path.join(output_path, f"{safe_name}.apkg")
-    package.write_to_file(output_path)
-    return output_path
+        output_path_final = os.path.abspath(f"{safe_name}.apkg")
+    else:
+        output_path = os.path.abspath(output_path)
+        if output_path.lower().endswith(".apkg"):
+            output_path_final = output_path
+        else:
+            os.makedirs(output_path, exist_ok=True)
+            output_path_final = os.path.join(output_path, f"{safe_name}.apkg")
+
+    os.makedirs(os.path.dirname(output_path_final), exist_ok=True)
+    package.write_to_file(output_path_final)
+    return output_path_final
 
 
